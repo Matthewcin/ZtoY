@@ -12,12 +12,12 @@ RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL')
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
-# Generación de teclado principal
 def get_main_keyboard():
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("📅 Ver Eventos", callback_data="list_events"))
     return markup
 
+# Handler para el comando /start
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(
@@ -27,9 +27,9 @@ def start(message):
         parse_mode="Markdown"
     )
 
+# Handler para botones (Navegación Single Message)
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    # Navegación: Volver al inicio
     if call.data == "back_home":
         bot.edit_message_text(
             "💎 **Panel VirusNTO**", 
@@ -38,14 +38,10 @@ def handle_query(call):
             reply_markup=get_main_keyboard(), 
             parse_mode="Markdown"
         )
-
-    # Listar Eventos (Single Message)
     elif call.data == "list_events":
         markup = types.InlineKeyboardMarkup()
-        # Aquí se integrarán los videos reales de Zoom más adelante
         markup.add(types.InlineKeyboardButton("🎬 Clase Reciente", callback_data="detail_1"))
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="back_home"))
-        
         bot.edit_message_text(
             "Selecciona un evento:", 
             call.message.chat.id, 
@@ -53,13 +49,16 @@ def handle_query(call):
             reply_markup=markup
         )
 
-# Rutas para Render y Webhooks
+# Ruta del Webhook
 @app.route('/' + TELEGRAM_TOKEN, methods=['POST'])
 def getMessage():
-    json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
-    return "!", 200
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update]) # Procesa el update en telebot
+        return "!", 200
+    else:
+        return "Forbidden", 403
 
 @app.route("/health")
 def health():
