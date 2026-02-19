@@ -1,74 +1,95 @@
 import os
-import json
+import time
 import telebot
-from flask import Flask, request
+import threading
+from flask import Flask
 from telebot import types
 
-# Variables de entorno
-TOKEN_DATA = os.environ.get('GOOGLE_TOKEN_JSON')
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL')
-
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
+# 1. Configuración y Carga de variables
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-def get_main_keyboard():
+# 2. Servidor Web para Keep Alive (UptimeRobot)
+@app.route('/health')
+def health():
+    return "OK", 200
+
+@app.route('/')
+def index():
+    return "Servidor Eventos Vivo", 200
+
+def run_flask():
+    # Render usa el puerto 10000 por defecto
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+# 3. Teclados (Keyboards)
+def menu_principal_kb():
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("📅 Ver Eventos", callback_data="list_events"))
     return markup
 
-# Handler para el comando /start
+def eventos_kb():
+    markup = types.InlineKeyboardMarkup()
+    # Aquí irán los videos reales de Zoom luego
+    markup.add(types.InlineKeyboardButton("🎬 Clase Reciente", callback_data="detail_1"))
+    markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
+    return markup
+
+# 4. Handlers (Lógica del Bot)
 @bot.message_handler(commands=['start'])
-def start(message):
+def command_start(message):
+    nombre = message.from_user.first_name
     bot.send_message(
-        message.chat.id, 
-        "💎 **Panel VirusNTO**", 
-        reply_markup=get_main_keyboard(), 
+        message.chat.id,
+        f"🛠 **Panel VirusNTO**\nHola {nombre}, sistema de Eventos listo.",
+        reply_markup=menu_principal_kb(),
         parse_mode="Markdown"
     )
 
-# Handler para botones (Navegación Single Message)
-@bot.callback_query_handler(func=lambda call: True)
-def handle_query(call):
-    if call.data == "back_home":
-        bot.edit_message_text(
-            "💎 **Panel VirusNTO**", 
-            call.message.chat.id, 
-            call.message.message_id, 
-            reply_markup=get_main_keyboard(), 
-            parse_mode="Markdown"
-        )
-    elif call.data == "list_events":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🎬 Clase Reciente", callback_data="detail_1"))
-        markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="back_home"))
-        bot.edit_message_text(
-            "Selecciona un evento:", 
-            call.message.chat.id, 
-            call.message.message_id, 
-            reply_markup=markup
-        )
+@bot.callback_query_handler(func=lambda call: call.data == "main_menu")
+def back_main(call):
+    bot.edit_message_text(
+        "💎 **Panel VirusNTO**\nSelecciona opción:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=menu_principal_kb(),
+        parse_mode="Markdown"
+    )
 
-# Ruta del Webhook
-@app.route('/' + TELEGRAM_TOKEN, methods=['POST'])
-def getMessage():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update]) # Procesa el update en telebot
-        return "!", 200
-    else:
-        return "Forbidden", 403
+@bot.callback_query_handler(func=lambda call: call.data == "list_events")
+def list_events(call):
+    bot.edit_message_text(
+        "📅 **Lista de Eventos**\nSelecciona una grabación:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=eventos_kb(),
+        parse_mode="Markdown"
+    )
 
-@app.route("/health")
-def health():
-    return "OK", 200
+# 5. Loop Principal (Blindado)
+def main_loop():
+    # Iniciamos Flask en un hilo separado para el Keep Alive
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
 
-@app.route("/")
-def index():
-    bot.remove_webhook()
-    bot.set_webhook(url=f"{RENDER_URL}/{TELEGRAM_TOKEN}")
-    return "Bot Activo y Webhook Configurado", 200
+    print("🤖 Bot Iniciado...")
+    
+    # TRUCO: Borrar webhook previo para que el polling funcione
+    try:
+        bot.delete_webhook()
+        time.sleep(1)
+    except Exception as e:
+        print(f"⚠️ Webhook cleanup: {e}")
+
+    while True:
+        try:
+            print("🔄 Conectando a Telegram via Polling...")
+            bot.infinity_polling(timeout=60, long_polling_timeout=60, allowed_updates=["message", "callback_query"])
+        except Exception as e:
+            print(f"⚠️ Error en polling: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 10000)))
+    main_loop()
