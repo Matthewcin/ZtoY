@@ -4,7 +4,7 @@ import telebot
 from flask import Flask, request
 from telebot import types
 
-# Configuración de variables
+# Variables de entorno
 TOKEN_DATA = os.environ.get('GOOGLE_TOKEN_JSON')
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 
@@ -13,17 +13,17 @@ app = Flask(__name__)
 
 def get_main_keyboard():
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("📅 Ver Eventos (Zoom)", callback_data="list_events"))
+    markup.add(types.InlineKeyboardButton("📅 Ver Eventos", callback_data="list_events"))
     return markup
 
-@bot.message_handler(commands=['start', 'eventos'])
+@bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, "💎 **Panel VirusNTO**", 
                      reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    # Lógica de navegación "Atrás"
+    # Navegación Single Message (Editar mensaje existente)
     if call.data == "back_home":
         bot.edit_message_text("💎 **Panel VirusNTO**", call.message.chat.id, 
                               call.message.message_id, reply_markup=get_main_keyboard(), 
@@ -31,12 +31,10 @@ def handle_query(call):
 
     elif call.data == "list_events":
         markup = types.InlineKeyboardMarkup()
-        # Aquí mapearás los videos reales después
-        markup.add(types.InlineKeyboardButton("🎬 Clase Actual", callback_data="detail_1"))
+        markup.add(types.InlineKeyboardButton("🎬 Ver Grabación Reciente", callback_data="detail_1"))
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="back_home"))
-        
-        bot.edit_message_text("Selecciona un evento:", 
-                              call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text("Selecciona un evento:", call.message.chat.id, 
+                              call.message.message_id, reply_markup=markup)
 
 @app.route('/' + TELEGRAM_TOKEN, methods=['POST'])
 def getMessage():
@@ -45,15 +43,12 @@ def getMessage():
     bot.process_new_updates([update])
     return "!", 200
 
-@app.route('/health')
-def health_check():
-    return "Bot is alive!", 200
+@app.route("/health")
+def health():
+    return "OK", 200
 
 @app.route("/")
-def webhook():
-    bot.remove_webhook()
-    # Cambia 'tu-app.onrender.com' por tu URL real de Render
-    bot.set_webhook(url=os.environ.get('RENDER_EXTERNAL_URL') + '/' + TELEGRAM_TOKEN)
+def index():
     return "Bot Activo", 200
 
 if __name__ == "__main__":
