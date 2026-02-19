@@ -45,6 +45,10 @@ def getMessage():
     bot.process_new_updates([update])
     return "!", 200
 
+@app.route('/health')
+def health_check():
+    return "Bot is alive!", 200
+
 @app.route("/")
 def webhook():
     bot.remove_webhook()
