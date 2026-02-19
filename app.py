@@ -8,6 +8,7 @@ from flask import Flask
 from telebot import types
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+from googleapiclient.http import MediaFileUpload
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 GOOGLE_TOKEN = os.environ.get('GOOGLE_TOKEN_JSON')
@@ -95,16 +96,40 @@ def list_events(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "test_run")
 def test_run(call):
-    bot.answer_callback_query(call.id, "Iniciando test de API...")
+    bot.edit_message_text("⏳ Descargando video de prueba...", call.message.chat.id, call.message.message_id)
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
+    
     try:
+        url = "https://www.w3schools.com/html/mov_bbb.mp4"
+        file_path = "/tmp/test.mp4"
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            with open(file_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
+        bot.edit_message_text("🚀 Subiendo video a YouTube...", call.message.chat.id, call.message.message_id)
+        
         service = get_youtube_service()
-        channels = service.channels().list(part="snippet", mine=True).execute()
-        canal = channels['items'][0]['snippet']['title']
-        bot.edit_message_text(f"✅ Conectado a YouTube\nCanal validado: {canal}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        body = {
+            'snippet': {'title': 'Test Upload VirusNTO', 'categoryId': '22'},
+            'status': {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False}
+        }
+        media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
+        request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
+        
+        response = None
+        while response is None:
+            status, response = request_yt.next_chunk()
+            
+        video_id = response.get('id')
+        os.remove(file_path)
+        
+        bot.edit_message_text(f"✅ **Test Exitoso**\nEl video se ha subido como Privado.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        
     except Exception as e:
-        bot.edit_message_text(f"❌ Error con Google: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        bot.edit_message_text(f"❌ Error en la subida: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @app.route('/health')
 def health(): return "OK", 200
