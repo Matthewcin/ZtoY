@@ -35,6 +35,20 @@ def get_youtube_service():
     creds = Credentials.from_authorized_user_info(info)
     return build('youtube', 'v3', credentials=creds)
 
+def get_participants(uuid_safe):
+    try:
+        token = get_zoom_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        r = requests.get(f"https://api.zoom.us/v2/report/meetings/{uuid_safe}", headers=headers)
+        if r.status_code == 200:
+            return r.json().get('participants_count', 'Desconocido')
+        r2 = requests.get(f"https://api.zoom.us/v2/past_meetings/{uuid_safe}", headers=headers)
+        if r2.status_code == 200:
+            return r2.json().get('participants_count', 'Desconocido')
+        return 'Desconocido'
+    except:
+        return 'Desconocido'
+
 def download_with_retry(download_url, file_path, chat_id, message_id):
     max_retries = 15
     wait_seconds = 60
@@ -68,11 +82,13 @@ def process_auto_upload(object_data):
     topic = object_data.get('topic', 'Zoom Recording')
     
     try:
-        msg = bot.send_message(ADMIN_CHAT_ID, f"🔄 *Grabación Detectada (Auto)*\nIniciando proceso para: {topic}", parse_mode="Markdown")
+        uuid_safe = urllib.parse.quote(urllib.parse.quote(raw_uuid, safe=''), safe='')
+        participantes = get_participants(uuid_safe)
+        
+        msg = bot.send_message(ADMIN_CHAT_ID, f"🔄 *Grabación Detectada (Auto)*\nIniciando proceso para: {topic}\n👥 Participantes totales: {participantes}", parse_mode="Markdown")
         chat_id = msg.chat.id
         msg_id = msg.message_id
         
-        uuid_safe = urllib.parse.quote(urllib.parse.quote(raw_uuid, safe=''), safe='')
         token = get_zoom_token()
         headers = {"Authorization": f"Bearer {token}"}
         url = f"https://api.zoom.us/v2/meetings/{uuid_safe}/recordings"
@@ -355,12 +371,23 @@ def zoom_webhook():
         ).hexdigest()
         return jsonify({"plainToken": plain_token, "encryptedToken": hashed_token}), 200
         
+    if event == 'meeting.started':
+        payload = data.get('payload', {})
+        object_data = payload.get('object', {})
+        topic = object_data.get('topic', 'Reunión de Zoom')
+        if ADMIN_CHAT_ID:
+            bot.send_message(ADMIN_CHAT_ID, f"🟢 *Reunión Iniciada*\nLa reunión '{topic}' acaba de comenzar.", parse_mode="Markdown")
+
     if event == 'recording.stopped':
         payload = data.get('payload', {})
         object_data = payload.get('object', {})
         topic = object_data.get('topic', 'Zoom Recording')
+        raw_uuid = object_data.get('uuid', '')
+        uuid_safe = urllib.parse.quote(urllib.parse.quote(raw_uuid, safe=''), safe='')
+        participantes = get_participants(uuid_safe)
+        
         if ADMIN_CHAT_ID:
-            bot.send_message(ADMIN_CHAT_ID, f"⏳ *Grabación Detenida*\nEl video '{topic}' se está procesando en Zoom. Te avisaré cuando esté listo para subir.", parse_mode="Markdown")
+            bot.send_message(ADMIN_CHAT_ID, f"⏳ *Grabación Detenida*\nEl video '{topic}' se está procesando en Zoom. Te avisaré cuando esté listo para subir.\n👥 Participantes totales: {participantes}", parse_mode="Markdown")
             
     if event == 'recording.completed':
         payload = data.get('payload', {})
