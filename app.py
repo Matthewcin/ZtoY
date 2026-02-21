@@ -16,9 +16,14 @@ GOOGLE_TOKEN = os.environ.get('GOOGLE_TOKEN_JSON')
 ZOOM_ACCOUNT_ID = os.getenv("ZOOM_ACCOUNT_ID")
 ZOOM_CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
 ZOOM_CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
+ZOOM_USER = os.getenv("ZOOM_USER", "me")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
+
+global_chat_id = None
+notified_recordings = set()
+processed_videos = set()
 
 def get_zoom_token():
     url = f"https://zoom.us/oauth/token?grant_type=account_credentials&account_id={ZOOM_ACCOUNT_ID}"
@@ -29,6 +34,77 @@ def get_youtube_service():
     info = json.loads(GOOGLE_TOKEN)
     creds = Credentials.from_authorized_user_info(info)
     return build('youtube', 'v3', credentials=creds)
+
+def download_and_upload(download_url, title):
+    token = get_zoom_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    r = requests.get(download_url, headers=headers, stream=True)
+    r.raise_for_status()
+    
+    file_path = f"/tmp/{title.replace(' ', '_').replace('/', '_')}.mp4"
+    with open(file_path, 'wb') as f:
+        for chunk in r.iter_content(chunk_size=8192):
+            f.write(chunk)
+            
+    service = get_youtube_service()
+    body = {
+        'snippet': {'title': title, 'categoryId': '22'},
+        'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
+    }
+    media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
+    request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
+    
+    response = None
+    while response is None:
+        status, response = request_yt.next_chunk()
+        
+    video_id = response.get('id')
+    os.remove(file_path)
+    return video_id
+
+def auto_monitor():
+    global global_chat_id
+    while True:
+        time.sleep(60)
+        if not global_chat_id:
+            continue
+            
+        try:
+            token = get_zoom_token()
+            headers = {"Authorization": f"Bearer {token}"}
+            hoy = datetime.now()
+            fecha_from = (hoy - timedelta(days=1)).strftime('%Y-%m-%d')
+            fecha_to = hoy.strftime('%Y-%m-%d')
+            
+            url = f"https://api.zoom.us/v2/users/{ZOOM_USER}/recordings?from={fecha_from}&to={fecha_to}"
+            r = requests.get(url, headers=headers)
+            meetings = r.json().get('meetings', [])
+            
+            for m in meetings:
+                m_id = m['uuid']
+                topic = m['topic']
+                files = m.get('recording_files', [])
+                mp4_files = [f for f in files if f.get('file_type') == 'MP4']
+                
+                if m_id not in notified_recordings:
+                    bot.send_message(global_chat_id, f"🔴 Se esta grabando {topic}!")
+                    notified_recordings.add(m_id)
+                
+                all_completed = all(f.get('status') == 'completed' for f in mp4_files) if mp4_files else False
+                
+                if mp4_files and all_completed and m_id not in processed_videos:
+                    processed_videos.add(m_id)
+                    bot.send_message(global_chat_id, f"✅ Recording Complete: {topic}\nIniciando subida a YouTube (Unlisted)...")
+                    
+                    try:
+                        download_url = mp4_files[0]['download_url']
+                        video_id = download_and_upload(download_url, topic)
+                        bot.send_message(global_chat_id, f"🚀 Subida Exitosa: {topic}\nEnlace: https://youtu.be/{video_id}")
+                    except Exception as e:
+                        bot.send_message(global_chat_id, f"❌ Error subiendo {topic}: {str(e)}")
+                        processed_videos.remove(m_id)
+        except:
+            pass
 
 def menu_principal_kb():
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -42,11 +118,15 @@ def menu_principal_kb():
 
 @bot.message_handler(commands=['start'])
 def command_start(message):
-    bot.send_message(message.chat.id, "💎 *Panel ZoomToYoutube*", reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    global global_chat_id
+    global_chat_id = message.chat.id
+    bot.send_message(message.chat.id, "💎 *Panel Zoom to Youtube*", reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_main(call):
-    bot.edit_message_text("💎 *Panel ZoomToYoutube*", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    global global_chat_id
+    global_chat_id = call.message.chat.id
+    bot.edit_message_text("💎 *Panel Zoom to Youtube*", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "zoom_config")
 def zoom_config(call):
@@ -79,7 +159,7 @@ def list_events(call):
         fecha_to = hoy.strftime('%Y-%m-%d')
         fecha_from = hace_un_mes.strftime('%Y-%m-%d')
         
-        url = f"https://api.zoom.us/v2/users/me/recordings?from={fecha_from}&to={fecha_to}"
+        url = f"https://api.zoom.us/v2/users/{ZOOM_USER}/recordings?from={fecha_from}&to={fecha_to}"
         r = requests.get(url, headers=headers)
         meetings = r.json().get('meetings', [])
 
@@ -116,8 +196,8 @@ def test_run(call):
         
         service = get_youtube_service()
         body = {
-            'snippet': {'title': 'Test Upload VirusNTO', 'categoryId': '22'},
-            'status': {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False}
+            'snippet': {'title': 'Test Upload by Matthew Bot', 'categoryId': '22'},
+            'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
         }
         media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
         request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
@@ -141,6 +221,7 @@ def run_flask(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
+    threading.Thread(target=auto_monitor, daemon=True).start()
     try:
         bot.delete_webhook()
         time.sleep(1)
