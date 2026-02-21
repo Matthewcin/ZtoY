@@ -15,7 +15,7 @@ GOOGLE_TOKEN = os.environ.get('GOOGLE_TOKEN_JSON')
 ZOOM_ACCOUNT_ID = os.getenv("ZOOM_ACCOUNT_ID")
 ZOOM_CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
 ZOOM_CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
-ZOOM_EMAIL = os.getenv("ZOOM_EMAIL", "aquiyahoramd@gmail.com")
+ZOOM_EMAIL = os.getenv("ZOOM_EMAIL")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -112,8 +112,8 @@ def test_run(call):
         
         service = get_youtube_service()
         body = {
-            'snippet': {'title': 'Test Upload Matthew Bot', 'categoryId': '22'},
-            'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
+            'snippet': {'title': 'Test Upload by Matthew Bot', 'categoryId': '22'},
+            'status': {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False}
         }
         media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
         request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
@@ -125,7 +125,7 @@ def test_run(call):
         video_id = response.get('id')
         os.remove(file_path)
         
-        bot.edit_message_text(f"✅ Test Exitoso\nEl video se ha subido como Privado.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text(f"✅ Test Exitoso\nEl video se ha subido como Unlisted.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup)
         
     except Exception as e:
         bot.edit_message_text(f"❌ Error en la subida: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup)
