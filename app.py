@@ -4,6 +4,7 @@ import telebot
 import threading
 import requests
 import json
+from datetime import datetime, timedelta
 from flask import Flask
 from telebot import types
 from googleapiclient.discovery import build
@@ -15,7 +16,6 @@ GOOGLE_TOKEN = os.environ.get('GOOGLE_TOKEN_JSON')
 ZOOM_ACCOUNT_ID = os.getenv("ZOOM_ACCOUNT_ID")
 ZOOM_CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
 ZOOM_CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
-ZOOM_EMAIL = os.getenv("ZOOM_EMAIL")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -42,11 +42,11 @@ def menu_principal_kb():
 
 @bot.message_handler(commands=['start'])
 def command_start(message):
-    bot.send_message(message.chat.id, "💎 *Panel Zoom to Youtube*", reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    bot.send_message(message.chat.id, "💎 *Panel ZoomToYoutube*", reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_main(call):
-    bot.edit_message_text("💎 *Panel Zoom to Youtube*", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    bot.edit_message_text("💎 *Panel ZoomToYoutube*", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "zoom_config")
 def zoom_config(call):
@@ -73,21 +73,25 @@ def list_events(call):
     try:
         token = get_zoom_token()
         headers = {"Authorization": f"Bearer {token}"}
-        url = f"https://api.zoom.us/v2/users/{ZOOM_EMAIL}/recordings"
+        
+        hoy = datetime.now()
+        hace_un_mes = hoy - timedelta(days=30)
+        fecha_to = hoy.strftime('%Y-%m-%d')
+        fecha_from = hace_un_mes.strftime('%Y-%m-%d')
+        
+        url = f"https://api.zoom.us/v2/users/me/recordings?from={fecha_from}&to={fecha_to}"
         r = requests.get(url, headers=headers)
-        data = r.json()
-        meetings = data.get('meetings', [])
+        meetings = r.json().get('meetings', [])
 
         markup = types.InlineKeyboardMarkup()
         if meetings:
             for m in meetings[:5]:
                 markup.add(types.InlineKeyboardButton(f"🎬 {m['topic']}", callback_data=f"detail_{m['id']}"))
-            markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
-            bot.edit_message_text("📁 Grabaciones en la Nube:", call.message.chat.id, call.message.message_id, reply_markup=markup)
         else:
-            markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
-            debug_msg = f"⚠️ Respuesta Zoom:\n{json.dumps(data)[:200]}"
-            bot.edit_message_text(debug_msg, call.message.chat.id, call.message.message_id, reply_markup=markup)
+            markup.add(types.InlineKeyboardButton("No hay grabaciones", callback_data="none"))
+        
+        markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
+        bot.edit_message_text("📁 Grabaciones en la Nube (Últimos 30 días):", call.message.chat.id, call.message.message_id, reply_markup=markup)
     except Exception as e:
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
@@ -112,7 +116,7 @@ def test_run(call):
         
         service = get_youtube_service()
         body = {
-            'snippet': {'title': 'Test Upload by Matthew Bot', 'categoryId': '22'},
+            'snippet': {'title': 'Test Upload VirusNTO', 'categoryId': '22'},
             'status': {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False}
         }
         media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
