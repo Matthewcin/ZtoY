@@ -220,6 +220,8 @@ def test_run(call):
 def health(): return "OK", 200
 
 def run_flask(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    
+zoom_inspector.register(bot, get_zoom_token)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
