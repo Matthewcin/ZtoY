@@ -64,36 +64,47 @@ def download_with_retry(download_url, file_path, chat_id, message_id):
 def process_auto_upload(object_data):
     if not ADMIN_CHAT_ID: return
     
+    raw_uuid = object_data.get('uuid')
     topic = object_data.get('topic', 'Zoom Recording')
-    uuid = object_data.get('uuid')
-    recording_files = object_data.get('recording_files', [])
-    
-    mp4_files = []
-    for f in recording_files:
-        if f.get('file_type') == 'MP4':
-            try:
-                start = datetime.strptime(f.get('recording_start', ''), "%Y-%m-%dT%H:%M:%SZ")
-                end = datetime.strptime(f.get('recording_end', ''), "%Y-%m-%dT%H:%M:%SZ")
-                if (end - start).total_seconds() >= 1:
-                    mp4_files.append(f)
-            except:
-                mp4_files.append(f)
-                
-    mp4_files.sort(key=lambda x: x.get('recording_start', ''))
-    
-    if not mp4_files: return
     
     try:
         msg = bot.send_message(ADMIN_CHAT_ID, f"🔄 *Grabación Detectada (Auto)*\nIniciando proceso para: {topic}", parse_mode="Markdown")
         chat_id = msg.chat.id
         msg_id = msg.message_id
         
+        uuid_safe = urllib.parse.quote(urllib.parse.quote(raw_uuid, safe=''), safe='')
+        token = get_zoom_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        url = f"https://api.zoom.us/v2/meetings/{uuid_safe}/recordings"
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        data = r.json()
+        
+        recording_files = data.get('recording_files', [])
+        mp4_files = []
+        
+        for f in recording_files:
+            if f.get('file_type') == 'MP4':
+                try:
+                    start = datetime.strptime(f.get('recording_start', ''), "%Y-%m-%dT%H:%M:%SZ")
+                    end = datetime.strptime(f.get('recording_end', ''), "%Y-%m-%dT%H:%M:%SZ")
+                    if (end - start).total_seconds() >= 1:
+                        mp4_files.append(f)
+                except:
+                    mp4_files.append(f)
+                    
+        mp4_files.sort(key=lambda x: x.get('recording_start', ''))
+        
+        if not mp4_files:
+            bot.edit_message_text("❌ No hay archivo MP4 válido o mayor a 1 segundo para esta reunión.", chat_id, msg_id)
+            return
+            
         service = get_youtube_service()
         uploaded_links = []
         
         for index, mp4_file in enumerate(mp4_files):
             download_url = mp4_file['download_url']
-            file_path = f"/tmp/auto_{uuid}_{index}.mp4"
+            file_path = f"/tmp/auto_{uuid_safe}_{index}.mp4"
             part_topic = topic
             if len(mp4_files) > 1:
                 part_topic = f"{topic} - Parte {index + 1}"
@@ -186,6 +197,7 @@ def list_events(call):
         r = requests.get(url, headers=headers)
         meetings = r.json().get('meetings', [])
         
+        meetings = [m for m in meetings if m.get('duration', 0) >= 1]
         meetings.sort(key=lambda x: x.get('start_time', ''))
 
         markup = types.InlineKeyboardMarkup()
@@ -343,6 +355,13 @@ def zoom_webhook():
         ).hexdigest()
         return jsonify({"plainToken": plain_token, "encryptedToken": hashed_token}), 200
         
+    if event == 'recording.stopped':
+        payload = data.get('payload', {})
+        object_data = payload.get('object', {})
+        topic = object_data.get('topic', 'Zoom Recording')
+        if ADMIN_CHAT_ID:
+            bot.send_message(ADMIN_CHAT_ID, f"⏳ *Grabación Detenida*\nEl video '{topic}' se está procesando en Zoom. Te avisaré cuando esté listo para subir.", parse_mode="Markdown")
+            
     if event == 'recording.completed':
         payload = data.get('payload', {})
         object_data = payload.get('object', {})
