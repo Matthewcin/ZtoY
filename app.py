@@ -113,7 +113,7 @@ def menu_principal_kb():
         types.InlineKeyboardButton("📽 Cloud Recordings", callback_data="list_events"),
         types.InlineKeyboardButton("📊 Estado YouTube", callback_data="yt_status"),
         types.InlineKeyboardButton("🧪 Test Upload", callback_data="test_run"),
-        types.InlineKeyboardButton("⚙️ Config Zoom", callback_data="zoom_config")
+        types.InlineKeyboardButton("⚙️ Config Zoom", callback_data="zoom_config"),
         types.InlineKeyboardButton("🔬 Inspector JSON", callback_data="raw_zoom_json")
     )
     return markup
@@ -122,13 +122,13 @@ def menu_principal_kb():
 def command_start(message):
     global global_chat_id
     global_chat_id = message.chat.id
-    bot.send_message(message.chat.id, "💎 *Panel Zoom to Youtube*", reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    bot.send_message(message.chat.id, "💎 *Panel*", reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_main(call):
     global global_chat_id
     global_chat_id = call.message.chat.id
-    bot.edit_message_text("💎 *Panel Zoom to Youtube*", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    bot.edit_message_text("💎 *Panel*", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "zoom_config")
 def zoom_config(call):
@@ -198,7 +198,7 @@ def test_run(call):
         
         service = get_youtube_service()
         body = {
-            'snippet': {'title': 'Test Upload by Matthew Bot', 'categoryId': '22'},
+            'snippet': {'title': 'Test Upload VirusNTO', 'categoryId': '22'},
             'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
         }
         media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
@@ -220,7 +220,7 @@ def test_run(call):
 def health(): return "OK", 200
 
 def run_flask(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-    
+
 zoom_inspector.register(bot, get_zoom_token)
 
 if __name__ == "__main__":
