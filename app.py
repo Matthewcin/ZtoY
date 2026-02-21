@@ -41,11 +41,11 @@ def menu_principal_kb():
 
 @bot.message_handler(commands=['start'])
 def command_start(message):
-    bot.send_message(message.chat.id, "💎 **Panel VirusNTO**", reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    bot.send_message(message.chat.id, "💎 *Panel Zoom to Youtube*", reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_main(call):
-    bot.edit_message_text("**Panel**", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    bot.edit_message_text("💎 *Panel Zoom to Youtube*", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "zoom_config")
 def zoom_config(call):
@@ -53,12 +53,7 @@ def zoom_config(call):
     status_client = "✅" if ZOOM_CLIENT_ID else "❌"
     status_secret = "✅" if ZOOM_CLIENT_SECRET else "❌"
     
-    texto = (
-        "⚙️ **Configuración de Zoom**\n\n"
-        f"Account ID: {status_account}\n"
-        f"Client ID: {status_client}\n"
-        f"Client Secret: {status_secret}\n"
-    )
+    texto = f"⚙️ *Configuración de Zoom*\n\nAccount ID: {status_account}\nClient ID: {status_client}\nClient Secret: {status_secret}\n"
     
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
@@ -69,7 +64,7 @@ def yt_status(call):
     status = "Conectado ✅" if GOOGLE_TOKEN else "Desconectado ❌"
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
-    bot.edit_message_text(f"📊 **Estado YouTube**\nToken: {status}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text(f"📊 *Estado YouTube*\nToken: {status}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "list_events")
 def list_events(call):
@@ -88,7 +83,7 @@ def list_events(call):
             markup.add(types.InlineKeyboardButton("No hay grabaciones", callback_data="none"))
         
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
-        bot.edit_message_text("📁 **Grabaciones en la Nube:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        bot.edit_message_text("📁 Grabaciones en la Nube:", call.message.chat.id, call.message.message_id, reply_markup=markup)
     except Exception as e:
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
@@ -113,7 +108,7 @@ def test_run(call):
         
         service = get_youtube_service()
         body = {
-            'snippet': {'title': 'Test Upload by Matthew Bot', 'categoryId': '22'},
+            'snippet': {'title': 'Test Upload Matthew Bot', 'categoryId': '22'},
             'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
         }
         media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
@@ -126,10 +121,10 @@ def test_run(call):
         video_id = response.get('id')
         os.remove(file_path)
         
-        bot.edit_message_text(f"✅ **Test Exitoso**\nEl video se ha subido como Unlisted.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        bot.edit_message_text(f"✅ Test Exitoso\nEl video se ha subido como Unlisted.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup)
         
     except Exception as e:
-        bot.edit_message_text(f"❌ Error en la subida: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        bot.edit_message_text(f"❌ Error en la subida: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 @app.route('/health')
 def health(): return "OK", 200
