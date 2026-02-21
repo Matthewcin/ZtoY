@@ -182,6 +182,59 @@ def list_events(call):
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
         bot.edit_message_text(f"❌ Error conectando a Zoom: {e}", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("detail_"))
+def show_detail(call):
+    meeting_id = call.data.split("detail_")[1]
+    bot.edit_message_text(f"⏳ Forzando subida para grabación {meeting_id}...", call.message.chat.id, call.message.message_id)
+    
+    try:
+        token = get_zoom_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        
+        hoy = datetime.now()
+        fecha_from = (hoy - timedelta(days=30)).strftime('%Y-%m-%d')
+        fecha_to = hoy.strftime('%Y-%m-%d')
+        
+        url = f"https://api.zoom.us/v2/users/{ZOOM_USER}/recordings?from={fecha_from}&to={fecha_to}"
+        r = requests.get(url, headers=headers)
+        meetings = r.json().get('meetings', [])
+        
+        target_meeting = next((m for m in meetings if str(m['id']) == meeting_id), None)
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="list_events"))
+        
+        if not target_meeting:
+            bot.edit_message_text("❌ Grabación no encontrada en los últimos 30 días.", call.message.chat.id, call.message.message_id, reply_markup=markup)
+            return
+            
+        topic = target_meeting['topic']
+        files = target_meeting.get('recording_files', [])
+        mp4_files = [f for f in files if f.get('file_type') == 'MP4']
+        
+        if not mp4_files:
+            bot.edit_message_text(f"❌ No hay archivos MP4 procesados para: {topic}", call.message.chat.id, call.message.message_id, reply_markup=markup)
+            return
+            
+        bot.edit_message_text(f"🚀 Iniciando subida de {topic} ({len(mp4_files)} partes)...", call.message.chat.id, call.message.message_id)
+        
+        resultados = []
+        for index, mp4 in enumerate(mp4_files):
+            part_suffix = f" - Parte {index + 1}" if len(mp4_files) > 1 else ""
+            video_title = f"{topic}{part_suffix}"
+            
+            download_url = mp4['download_url']
+            video_id = download_and_upload(download_url, video_title)
+            resultados.append(f"✅ {video_title}\nhttps://youtu.be/{video_id}")
+        
+        texto_final = "✅ *Subida Forzada Exitosa*\n\n" + "\n\n".join(resultados)
+        bot.edit_message_text(texto_final, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        
+    except Exception as e:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="list_events"))
+        bot.edit_message_text(f"❌ Error en la subida forzada: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup)
+
 @bot.callback_query_handler(func=lambda call: call.data == "test_run")
 def test_run(call):
     bot.edit_message_text("⏳ Descargando video de prueba...", call.message.chat.id, call.message.message_id)
