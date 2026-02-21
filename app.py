@@ -15,6 +15,7 @@ GOOGLE_TOKEN = os.environ.get('GOOGLE_TOKEN_JSON')
 ZOOM_ACCOUNT_ID = os.getenv("ZOOM_ACCOUNT_ID")
 ZOOM_CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
 ZOOM_CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
+ZOOM_EMAIL = os.getenv("ZOOM_EMAIL", "aquiyahoramd@gmail.com")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -72,18 +73,21 @@ def list_events(call):
     try:
         token = get_zoom_token()
         headers = {"Authorization": f"Bearer {token}"}
-        r = requests.get("https://api.zoom.us/v2/users/me/recordings", headers=headers)
-        meetings = r.json().get('meetings', [])
+        url = f"https://api.zoom.us/v2/users/{ZOOM_EMAIL}/recordings"
+        r = requests.get(url, headers=headers)
+        data = r.json()
+        meetings = data.get('meetings', [])
 
         markup = types.InlineKeyboardMarkup()
         if meetings:
             for m in meetings[:5]:
                 markup.add(types.InlineKeyboardButton(f"🎬 {m['topic']}", callback_data=f"detail_{m['id']}"))
+            markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
+            bot.edit_message_text("📁 Grabaciones en la Nube:", call.message.chat.id, call.message.message_id, reply_markup=markup)
         else:
-            markup.add(types.InlineKeyboardButton("No hay grabaciones", callback_data="none"))
-        
-        markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
-        bot.edit_message_text("📁 Grabaciones en la Nube:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+            markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
+            debug_msg = f"⚠️ Respuesta Zoom:\n{json.dumps(data)[:200]}"
+            bot.edit_message_text(debug_msg, call.message.chat.id, call.message.message_id, reply_markup=markup)
     except Exception as e:
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
@@ -121,7 +125,7 @@ def test_run(call):
         video_id = response.get('id')
         os.remove(file_path)
         
-        bot.edit_message_text(f"✅ Test Exitoso\nEl video se ha subido como Unlisted.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text(f"✅ Test Exitoso\nEl video se ha subido como Privado.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup)
         
     except Exception as e:
         bot.edit_message_text(f"❌ Error en la subida: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup)
