@@ -95,15 +95,18 @@ def auto_monitor():
                 
                 if mp4_files and all_completed and m_id not in processed_videos:
                     processed_videos.add(m_id)
-                    bot.send_message(global_chat_id, f"✅ Recording Complete: {topic}\nIniciando subida a YouTube (Unlisted)...")
+                    bot.send_message(global_chat_id, f"✅ Recording Complete: {topic}\nDetectadas {len(mp4_files)} partes. Iniciando subida a YouTube (Unlisted)...")
                     
-                    try:
-                        download_url = mp4_files[0]['download_url']
-                        video_id = download_and_upload(download_url, topic)
-                        bot.send_message(global_chat_id, f"🚀 Subida Exitosa: {topic}\nEnlace: https://youtu.be/{video_id}")
-                    except Exception as e:
-                        bot.send_message(global_chat_id, f"❌ Error subiendo {topic}: {str(e)}")
-                        processed_videos.remove(m_id)
+                    for index, mp4 in enumerate(mp4_files):
+                        part_suffix = f" - Parte {index + 1}" if len(mp4_files) > 1 else ""
+                        video_title = f"{topic}{part_suffix}"
+                        
+                        try:
+                            download_url = mp4['download_url']
+                            video_id = download_and_upload(download_url, video_title)
+                            bot.send_message(global_chat_id, f"🚀 Subida Exitosa: {video_title}\nEnlace: https://youtu.be/{video_id}")
+                        except Exception as e:
+                            bot.send_message(global_chat_id, f"❌ Error subiendo {video_title}: {str(e)}")
         except:
             pass
 
@@ -198,7 +201,7 @@ def test_run(call):
         
         service = get_youtube_service()
         body = {
-            'snippet': {'title': 'Test Upload VirusNTO', 'categoryId': '22'},
+            'snippet': {'title': 'Test Upload by Matthew Bot', 'categoryId': '22'},
             'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
         }
         media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
@@ -211,7 +214,7 @@ def test_run(call):
         video_id = response.get('id')
         os.remove(file_path)
         
-        bot.edit_message_text(f"✅ Test Exitoso\nEl video se ha subido como Unlisted.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text(f"✅ Test Exitoso\nEl video se ha subido como Privado.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup)
         
     except Exception as e:
         bot.edit_message_text(f"❌ Error en la subida: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup)
