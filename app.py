@@ -4,8 +4,10 @@ import telebot
 import threading
 import requests
 import json
+import hashlib
+import hmac
 from datetime import datetime, timedelta
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from telebot import types
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
@@ -17,6 +19,8 @@ GOOGLE_TOKEN = os.environ.get('GOOGLE_TOKEN_JSON')
 ZOOM_ACCOUNT_ID = os.getenv("ZOOM_ACCOUNT_ID")
 ZOOM_CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
 ZOOM_CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
+ZOOM_WEBHOOK_SECRET = os.getenv("ZOOM_WEBHOOK_SECRET")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -42,14 +46,14 @@ def download_with_retry(download_url, file_path, chat_id, message_id):
         with requests.get(download_url, headers=headers, stream=True) as r:
             if r.status_code == 404 or r.status_code == 403:
                 bot.edit_message_text(
-                    f"⏳ El video sigue procesándose en Zoom...\nReintentando en {wait_seconds}s (Intento {i+1}/{max_retries})", 
+                    f"⏳ Zoom procesando el video...\nReintentando en {wait_seconds}s (Intento {i+1}/{max_retries})", 
                     chat_id, message_id
                 )
                 time.sleep(wait_seconds)
                 continue
             
             r.raise_for_status()
-            bot.edit_message_text("⬇️ Descargando archivo MP4...", chat_id, message_id)
+            bot.edit_message_text("✅ ¡Procesamiento terminado en Zoom!\n⬇️ Descargando archivo MP4 a Render...", chat_id, message_id)
             with open(file_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
@@ -57,13 +61,83 @@ def download_with_retry(download_url, file_path, chat_id, message_id):
             
     raise Exception("Timeout esperando a que Zoom procese el video.")
 
+def process_auto_upload(object_data):
+    if not ADMIN_CHAT_ID: return
+    
+    topic = object_data.get('topic', 'Zoom Recording')
+    uuid = object_data.get('uuid')
+    recording_files = object_data.get('recording_files', [])
+    
+    mp4_files = []
+    for f in recording_files:
+        if f.get('file_type') == 'MP4':
+            try:
+                start = datetime.strptime(f.get('recording_start', ''), "%Y-%m-%dT%H:%M:%SZ")
+                end = datetime.strptime(f.get('recording_end', ''), "%Y-%m-%dT%H:%M:%SZ")
+                if (end - start).total_seconds() >= 60:
+                    mp4_files.append(f)
+            except:
+                mp4_files.append(f)
+                
+    mp4_files.sort(key=lambda x: x.get('recording_start', ''))
+    
+    if not mp4_files: return
+    
+    try:
+        msg = bot.send_message(ADMIN_CHAT_ID, f"🔄 *Grabación Detectada (Auto)*\nIniciando proceso para: {topic}", parse_mode="Markdown")
+        chat_id = msg.chat.id
+        msg_id = msg.message_id
+        
+        service = get_youtube_service()
+        uploaded_links = []
+        
+        for index, mp4_file in enumerate(mp4_files):
+            download_url = mp4_file['download_url']
+            file_path = f"/tmp/auto_{uuid}_{index}.mp4"
+            part_topic = topic
+            if len(mp4_files) > 1:
+                part_topic = f"{topic} - Parte {index + 1}"
+            
+            download_with_retry(download_url, file_path, chat_id, msg_id)
+            bot.edit_message_text(f"🚀 Subiendo a YouTube: {part_topic}...\nProgreso: 0%", chat_id, msg_id)
+            
+            body = {
+                'snippet': {'title': part_topic, 'categoryId': '22'},
+                'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
+            }
+            media = MediaFileUpload(file_path, chunksize=256*1024, resumable=True)
+            request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
+            
+            response = None
+            last_progress = 0
+            while response is None:
+                status, response = request_yt.next_chunk()
+                if status:
+                    current_progress = int(status.progress() * 100)
+                    if current_progress - last_progress >= 10:
+                        try:
+                            bot.edit_message_text(f"🚀 Subiendo a YouTube: {part_topic}...\nProgreso: {current_progress}% ⏳", chat_id, msg_id)
+                            last_progress = current_progress
+                        except:
+                            pass
+            
+            video_id = response.get('id')
+            os.remove(file_path)
+            uploaded_links.append(f"https://youtu.be/{video_id}")
+            
+        final_text = "✅ Subida Automática Exitosa\n" + "\n".join(uploaded_links)
+        bot.edit_message_text(final_text, chat_id, msg_id)
+        
+    except Exception as e:
+        bot.send_message(ADMIN_CHAT_ID, f"❌ Error en subida automática: {str(e)}")
+
 def menu_principal_kb():
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("📽 Cloud Recordings", callback_data="list_events"),
         types.InlineKeyboardButton("📊 Estado YouTube", callback_data="yt_status"),
         types.InlineKeyboardButton("🧪 Test Upload", callback_data="test_run"),
-        types.InlineKeyboardButton("⚙️ Config Zoom", callback_data="zoom_config")
+        types.InlineKeyboardButton("⚙️ Config Sistema", callback_data="zoom_config")
     )
     return markup
 
@@ -80,8 +154,10 @@ def zoom_config(call):
     status_account = "✅" if ZOOM_ACCOUNT_ID else "❌"
     status_client = "✅" if ZOOM_CLIENT_ID else "❌"
     status_secret = "✅" if ZOOM_CLIENT_SECRET else "❌"
+    status_wh = "✅" if ZOOM_WEBHOOK_SECRET else "❌"
+    status_admin = "✅" if ADMIN_CHAT_ID else "❌"
     
-    texto = f"⚙️ *Configuración de Zoom*\n\nAccount ID: {status_account}\nClient ID: {status_client}\nClient Secret: {status_secret}\n"
+    texto = f"⚙️ *Configuración de Sistema*\n\nAccount ID: {status_account}\nClient ID: {status_client}\nClient Secret: {status_secret}\nWebhook Secret: {status_wh}\nAdmin Chat ID: {status_admin}\n"
     
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
@@ -109,17 +185,20 @@ def list_events(call):
         url = f"https://api.zoom.us/v2/users/me/recordings?from={fecha_from}&to={fecha_to}"
         r = requests.get(url, headers=headers)
         meetings = r.json().get('meetings', [])
+        
+        meetings = [m for m in meetings if m.get('duration', 0) >= 1]
+        meetings.sort(key=lambda x: x.get('start_time', ''))
 
         markup = types.InlineKeyboardMarkup()
         if meetings:
-            for m in meetings[:5]:
+            for m in meetings[:10]:
                 uuid_safe = urllib.parse.quote(urllib.parse.quote(m['uuid'], safe=''), safe='')
                 markup.add(types.InlineKeyboardButton(f"🎬 {m['topic']}", callback_data=f"detail_{uuid_safe}"))
         else:
-            markup.add(types.InlineKeyboardButton("No hay grabaciones", callback_data="none"))
+            markup.add(types.InlineKeyboardButton("No hay grabaciones válidas", callback_data="none"))
         
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
-        bot.edit_message_text("📁 Grabaciones en la Nube (Últimos 30 días):", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text("📁 Grabaciones en la Nube (Orden Cronológico):", call.message.chat.id, call.message.message_id, reply_markup=markup)
     except Exception as e:
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("⬅️ Volver", callback_data="main_menu"))
@@ -141,35 +220,65 @@ def upload_real_video(call):
         r.raise_for_status()
         data = r.json()
         
-        mp4_file = next((f for f in data.get('recording_files', []) if f['file_type'] == 'MP4'), None)
-        if not mp4_file:
-            bot.edit_message_text("❌ No hay archivo MP4 disponible para esta reunión.", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        recording_files = data.get('recording_files', [])
+        mp4_files = []
+        
+        for f in recording_files:
+            if f.get('file_type') == 'MP4':
+                try:
+                    start = datetime.strptime(f.get('recording_start', ''), "%Y-%m-%dT%H:%M:%SZ")
+                    end = datetime.strptime(f.get('recording_end', ''), "%Y-%m-%dT%H:%M:%SZ")
+                    if (end - start).total_seconds() >= 60:
+                        mp4_files.append(f)
+                except:
+                    mp4_files.append(f)
+                    
+        mp4_files.sort(key=lambda x: x.get('recording_start', ''))
+        
+        if not mp4_files:
+            bot.edit_message_text("❌ No hay archivo MP4 válido o mayor a 1 minuto para esta reunión.", call.message.chat.id, call.message.message_id, reply_markup=markup)
             return
             
-        download_url = mp4_file['download_url']
-        file_path = f"/tmp/{uuid}.mp4"
-        topic = data.get('topic', 'Zoom Recording')
-        
-        download_with_retry(download_url, file_path, call.message.chat.id, call.message.message_id)
-        
-        bot.edit_message_text("🚀 Subiendo video a YouTube...", call.message.chat.id, call.message.message_id)
-        
         service = get_youtube_service()
-        body = {
-            'snippet': {'title': topic, 'categoryId': '22'},
-            'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
-        }
-        media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
-        request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
+        uploaded_links = []
         
-        response = None
-        while response is None:
-            status, response = request_yt.next_chunk()
+        for index, mp4_file in enumerate(mp4_files):
+            download_url = mp4_file['download_url']
+            file_path = f"/tmp/{uuid}_{index}.mp4"
+            topic = data.get('topic', 'Zoom Recording')
+            if len(mp4_files) > 1:
+                topic = f"{topic} - Parte {index + 1}"
             
-        video_id = response.get('id')
-        os.remove(file_path)
+            download_with_retry(download_url, file_path, call.message.chat.id, call.message.message_id)
+            
+            bot.edit_message_text(f"🚀 Subiendo a YouTube: {topic}...\nProgreso: 0%", call.message.chat.id, call.message.message_id)
+            
+            body = {
+                'snippet': {'title': topic, 'categoryId': '22'},
+                'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
+            }
+            media = MediaFileUpload(file_path, chunksize=256*1024, resumable=True)
+            request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
+            
+            response = None
+            last_progress = 0
+            while response is None:
+                status, response = request_yt.next_chunk()
+                if status:
+                    current_progress = int(status.progress() * 100)
+                    if current_progress - last_progress >= 10:
+                        try:
+                            bot.edit_message_text(f"🚀 Subiendo a YouTube: {topic}...\nProgreso: {current_progress}% ⏳", call.message.chat.id, call.message.message_id)
+                            last_progress = current_progress
+                        except:
+                            pass
+                
+            video_id = response.get('id')
+            os.remove(file_path)
+            uploaded_links.append(f"https://youtu.be/{video_id}")
         
-        bot.edit_message_text(f"✅ Subida Exitosa\nVideo: {topic}\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        final_text = "✅ Subida Exitosa\n" + "\n".join(uploaded_links)
+        bot.edit_message_text(final_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
         
     except Exception as e:
         bot.edit_message_text(f"❌ Error general: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup)
@@ -189,19 +298,28 @@ def test_run(call):
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
                     
-        bot.edit_message_text("🚀 Subiendo video a YouTube...", call.message.chat.id, call.message.message_id)
+        bot.edit_message_text("🚀 Subiendo video a YouTube...\nProgreso: 0%", call.message.chat.id, call.message.message_id)
         
         service = get_youtube_service()
         body = {
             'snippet': {'title': 'Test Upload VirusNTO', 'categoryId': '22'},
             'status': {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False}
         }
-        media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
+        media = MediaFileUpload(file_path, chunksize=256*1024, resumable=True)
         request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
         
         response = None
+        last_progress = 0
         while response is None:
             status, response = request_yt.next_chunk()
+            if status:
+                current_progress = int(status.progress() * 100)
+                if current_progress - last_progress >= 10:
+                    try:
+                        bot.edit_message_text(f"🚀 Subiendo video a YouTube...\nProgreso: {current_progress}% ⏳", call.message.chat.id, call.message.message_id)
+                        last_progress = current_progress
+                    except:
+                        pass
             
         video_id = response.get('id')
         os.remove(file_path)
@@ -210,6 +328,27 @@ def test_run(call):
         
     except Exception as e:
         bot.edit_message_text(f"❌ Error en la subida: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+@app.route('/zoom_webhook', methods=['POST'])
+def zoom_webhook():
+    data = request.json
+    event = data.get('event')
+    
+    if event == 'endpoint.url_validation':
+        plain_token = data['payload']['plainToken']
+        hashed_token = hmac.new(
+            ZOOM_WEBHOOK_SECRET.encode('utf-8'), 
+            plain_token.encode('utf-8'), 
+            hashlib.sha256
+        ).hexdigest()
+        return jsonify({"plainToken": plain_token, "encryptedToken": hashed_token}), 200
+        
+    if event == 'recording.completed':
+        payload = data.get('payload', {})
+        object_data = payload.get('object', {})
+        threading.Thread(target=process_auto_upload, args=(object_data,)).start()
+        
+    return "OK", 200
 
 @app.route('/health')
 def health(): return "OK", 200
