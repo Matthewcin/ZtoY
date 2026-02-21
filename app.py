@@ -10,6 +10,7 @@ from telebot import types
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
+from handlers import zoom_inspector
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 GOOGLE_TOKEN = os.environ.get('GOOGLE_TOKEN_JSON')
@@ -113,6 +114,7 @@ def menu_principal_kb():
         types.InlineKeyboardButton("📊 Estado YouTube", callback_data="yt_status"),
         types.InlineKeyboardButton("🧪 Test Upload", callback_data="test_run"),
         types.InlineKeyboardButton("⚙️ Config Zoom", callback_data="zoom_config")
+        types.InlineKeyboardButton("🔬 Inspector JSON", callback_data="raw_zoom_json")
     )
     return markup
 
