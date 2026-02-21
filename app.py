@@ -74,7 +74,7 @@ def process_auto_upload(object_data):
             try:
                 start = datetime.strptime(f.get('recording_start', ''), "%Y-%m-%dT%H:%M:%SZ")
                 end = datetime.strptime(f.get('recording_end', ''), "%Y-%m-%dT%H:%M:%SZ")
-                if (end - start).total_seconds() >= 60:
+                if (end - start).total_seconds() >= 1:
                     mp4_files.append(f)
             except:
                 mp4_files.append(f)
@@ -186,7 +186,6 @@ def list_events(call):
         r = requests.get(url, headers=headers)
         meetings = r.json().get('meetings', [])
         
-        meetings = [m for m in meetings if m.get('duration', 0) >= 1]
         meetings.sort(key=lambda x: x.get('start_time', ''))
 
         markup = types.InlineKeyboardMarkup()
@@ -228,7 +227,7 @@ def upload_real_video(call):
                 try:
                     start = datetime.strptime(f.get('recording_start', ''), "%Y-%m-%dT%H:%M:%SZ")
                     end = datetime.strptime(f.get('recording_end', ''), "%Y-%m-%dT%H:%M:%SZ")
-                    if (end - start).total_seconds() >= 60:
+                    if (end - start).total_seconds() >= 1:
                         mp4_files.append(f)
                 except:
                     mp4_files.append(f)
@@ -236,7 +235,7 @@ def upload_real_video(call):
         mp4_files.sort(key=lambda x: x.get('recording_start', ''))
         
         if not mp4_files:
-            bot.edit_message_text("❌ No hay archivo MP4 válido o mayor a 1 minuto para esta reunión.", call.message.chat.id, call.message.message_id, reply_markup=markup)
+            bot.edit_message_text("❌ No hay archivo MP4 válido o mayor a 1 segundo para esta reunión.", call.message.chat.id, call.message.message_id, reply_markup=markup)
             return
             
         service = get_youtube_service()
@@ -335,9 +334,10 @@ def zoom_webhook():
     event = data.get('event')
     
     if event == 'endpoint.url_validation':
+        secret = ZOOM_WEBHOOK_SECRET or ""
         plain_token = data['payload']['plainToken']
         hashed_token = hmac.new(
-            ZOOM_WEBHOOK_SECRET.encode('utf-8'), 
+            secret.encode('utf-8'), 
             plain_token.encode('utf-8'), 
             hashlib.sha256
         ).hexdigest()
