@@ -45,7 +45,7 @@ def command_start(message):
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_main(call):
-    bot.edit_message_text("💎 **Panel VirusNTO**", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
+    bot.edit_message_text("**Panel**", call.message.chat.id, call.message.message_id, reply_markup=menu_principal_kb(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "zoom_config")
 def zoom_config(call):
@@ -113,8 +113,8 @@ def test_run(call):
         
         service = get_youtube_service()
         body = {
-            'snippet': {'title': 'Test Upload VirusNTO', 'categoryId': '22'},
-            'status': {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False}
+            'snippet': {'title': 'Test Upload by Matthew Bot', 'categoryId': '22'},
+            'status': {'privacyStatus': 'unlisted', 'selfDeclaredMadeForKids': False}
         }
         media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
         request_yt = service.videos().insert(part='snippet,status', body=body, media_body=media)
@@ -126,7 +126,7 @@ def test_run(call):
         video_id = response.get('id')
         os.remove(file_path)
         
-        bot.edit_message_text(f"✅ **Test Exitoso**\nEl video se ha subido como Privado.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        bot.edit_message_text(f"✅ **Test Exitoso**\nEl video se ha subido como Unlisted.\nEnlace: https://youtu.be/{video_id}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
         
     except Exception as e:
         bot.edit_message_text(f"❌ Error en la subida: {str(e)}", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
